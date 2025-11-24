@@ -1,0 +1,43 @@
+-- ⚠️ DEPRECATED: MongoDB is now used instead of MySQL
+-- This file is kept for reference only
+-- Database setup is now handled by setup-mongodb.js
+
+-- Original MySQL schema (for reference):
+-- 
+-- CREATE DATABASE IF NOT EXISTS blind_sqli_db;
+-- USE blind_sqli_db;
+--
+-- CREATE TABLE IF NOT EXISTS users (
+--   id INT PRIMARY KEY AUTO_INCREMENT,
+--   username VARCHAR(50) UNIQUE NOT NULL,
+--   password VARCHAR(100) NOT NULL,
+--   email VARCHAR(100) UNIQUE NOT NULL,
+--   role VARCHAR(20) DEFAULT 'user',
+--   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+-- );
+--
+-- INSERT INTO users (username, password, email, role) VALUES
+-- ('admin', 'admin123', 'admin@example.com', 'admin'),
+-- ('user', 'user123', 'user@example.com', 'user'),
+-- ('john', 'john456', 'john@example.com', 'user'),
+-- ('alice', 'alice789', 'alice@example.com', 'user'),
+-- ('bob', 'bob321', 'bob@example.com', 'user');
+
+-- ✓ NEW: MongoDB Setup
+-- 
+-- Run: npm run setup
+-- Or:  node setup-mongodb.js
+--
+-- Database: blind_sqli_db
+-- Collection: users
+-- 
+-- Sample document structure:
+-- {
+--   "_id": ObjectId("..."),
+--   "username": "admin",
+--   "password": "admin123",
+--   "email": "admin@example.com",
+--   "role": "admin",
+--   "created_at": ISODate("2025-11-24T...")
+-- }
+
