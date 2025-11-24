@@ -43,6 +43,17 @@ mongoClient.connect().then(() => {
 // Serve static files
 app.use(express.static(path.join(__dirname, '../frontend/public')));
 
+// Middleware: Check if database is connected
+app.use((req, res, next) => {
+  if (!usersCollection) {
+    return res.status(503).json({ 
+      success: false, 
+      message: 'Database not connected. Please try again later.' 
+    });
+  }
+  next();
+});
+
 // Home page
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/public', 'index.html'));
