@@ -1,6 +1,5 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const { MongoClient } = require('mongodb');
 const path = require('path');
 const session = require('express-session');
 const jwt = require('jsonwebtoken');
@@ -21,85 +20,32 @@ app.use(session({
   cookie: { maxAge: 3600000 }
 }));
 
-// MongoDB connection config
-const MONGO_URL = process.env.MONGO_URL || 'mongodb+srv://izakythb_db_user:12345@blindsql.xvz0j3z.mongodb.net/?appName=BlindSQL';
-const DB_NAME = 'blind_sqli_db';
-const COLLECTION_NAME = 'users';
+// In-memory database
+const users = [
+  { id: 1, username: 'admin', password: 'admin123', email: 'admin@test.com', role: 'admin' },
+  { id: 2, username: 'ibnu', password: 'ibnu123', email: 'ibnu@test.com', role: 'user' },
+  { id: 3, username: 'zaky', password: 'zaky123', email: 'zaky@test.com', role: 'user' },
+  { id: 4, username: 'tjokorde', password: 'tjokorde123', email: 'tjokorde@test.com', role: 'user' },
+  { id: 5, username: 'agung', password: 'agung123', email: 'agung@test.com', role: 'user' }
+];
 
-let db = null;
-let usersCollection = null;
-
-const mongoClient = new MongoClient(MONGO_URL, {
-  serverSelectionTimeoutMS: 10000,
-  socketTimeoutMS: 10000,
-  connectTimeoutMS: 10000,
-  retryWrites: true,
-  w: 'majority'
-});
-
-async function connectDB() {
-  try {
-    console.log('🔄 Connecting to MongoDB...');
-    await mongoClient.connect();
-    db = mongoClient.db(DB_NAME);
-    usersCollection = db.collection(COLLECTION_NAME);
-    
-    await usersCollection.createIndex({ username: 1 }, { unique: true });
-    console.log('✅ Connected to MongoDB');
-    
-    // Initialize sample data
-    const count = await usersCollection.countDocuments();
-    if (count === 0) {
-      console.log('📝 Inserting sample users...');
-      const sampleUsers = [
-        { username: 'admin', password: 'admin123', email: 'admin@test.com', role: 'admin' },
-        { username: 'ibnu', password: 'ibnu123', email: 'ibnu@test.com', role: 'user' },
-        { username: 'zaky', password: 'zaky123', email: 'zaky@test.com', role: 'user' },
-        { username: 'tjokorde', password: 'tjokorde123', email: 'tjokorde@test.com', role: 'user' },
-        { username: 'agung', password: 'agung123', email: 'agung@test.com', role: 'user' }
-      ];
-      await usersCollection.insertMany(sampleUsers);
-      console.log('✅ Sample users added');
-    }
-    return true;
-  } catch (err) {
-    console.error('❌ Failed to connect to MongoDB:', err.message);
-    return false;
-  }
-}
+console.log('✅ Database initialized (in-memory)');
 
 // Serve static files
 app.use(express.static(path.join(__dirname, '../frontend/public')));
-
-// Middleware: Check if database is connected
-app.use((req, res, next) => {
-  if (!usersCollection) {
-    return res.status(503).json({ 
-      success: false, 
-      message: 'Database not connected. Please try again later.' 
-    });
-  }
-  next();
-});
 
 // Home page
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/public', 'index.html'));
 });
 
-// Health check endpoint (for Vercel/monitoring)
+// Health check
 app.get('/api/health', (req, res) => {
-  const health = {
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    database: usersCollection ? 'connected' : 'disconnected'
-  };
-  const statusCode = usersCollection ? 200 : 503;
-  res.status(statusCode).json(health);
+  res.json({ status: 'ok', database: 'in-memory' });
 });
 
-// Vulnerable login endpoint - BLIND NOSQL INJECTION
-app.post('/api/login', async (req, res) => {
+// ⚠️ VULNERABLE: Blind SQL Injection endpoint
+app.post('/api/login', (req, res) => {
   try {
     const username = req.body.username;
     const password = req.body.password;
@@ -108,249 +54,92 @@ app.post('/api/login', async (req, res) => {
       return res.json({ success: false, message: 'Username and password required' });
     }
 
-    // VULNERABLE: Direct NoSQL injection vulnerability
-    // This allows attackers to inject MongoDB operators like {"$ne": null}
-    let vulnerableQuery = {};
+    // VULNERABLE: String concatenation (simulates SQL injection)
+    // Query: SELECT * FROM users WHERE username='${username}' AND password='${password}'
     
-    try {
-      // If input is an object (JSON), use it directly - VULNERABLE!
-      if (typeof username === 'object') {
-        vulnerableQuery.username = username;
-      } else if (typeof username === 'string' && (username.startsWith('{') || username.startsWith('['))) {
-        // VULNERABLE: Parse string input as object
-        vulnerableQuery.username = JSON.parse(username);
-      } else {
-        vulnerableQuery.username = username;
-      }
-    } catch (parseErr) {
-      // If parsing fails, use as string
-      vulnerableQuery.username = username;
-    }
+    console.log(`🔴 VULNERABLE QUERY: SELECT * FROM users WHERE username='${username}' AND password='${password}'`);
     
-    // Same for password
-    if (typeof password === 'object') {
-      vulnerableQuery.password = password;
-    } else if (typeof password === 'string' && (password.startsWith('{') || password.startsWith('['))) {
-      try {
-        vulnerableQuery.password = JSON.parse(password);
-      } catch (e) {
-        vulnerableQuery.password = password;
-      }
+    let user = null;
+
+    // SQL Injection detection: ' OR '1'='1
+    if (username.includes("' OR '1'='1")) {
+      // Auth bypass - matches any user with OR condition
+      user = users[0]; // Return admin
+    } else if (username.includes("' AND")) {
+      // Blind SQL extraction patterns
+      const baseName = username.split("'")[0];
+      user = users.find(u => u.username === baseName);
     } else {
-      vulnerableQuery.password = password;
+      // Normal login
+      user = users.find(u => u.username === username && u.password === password);
     }
-    
-    const user = await usersCollection.findOne(vulnerableQuery);
-    
+
     if (user) {
-      // Store user in session
       req.session.user = {
-        id: user._id.toString(),
+        id: user.id,
         username: user.username,
         email: user.email,
         role: user.role
       };
-      
-      // INSECURE: Generate JWT without expiration (vulnerable)
+
       const token = jwt.sign(
-        {
-          id: user._id.toString(),
-          username: user.username,
-          email: user.email,
-          role: user.role
-        },
+        { id: user.id, username: user.username, email: user.email, role: user.role },
         JWT_SECRET,
         { algorithm: JWT_ALGORITHM }
-        // INSECURE: No expiresIn option - token never expires!
       );
-      
-      return res.json({ 
-        success: true, 
+
+      return res.json({
+        success: true,
         message: 'Login successful',
         user: user.username,
-        token: token // Return JWT to client
+        token: token
       });
     } else {
       return res.json({ success: false, message: 'Login failed' });
     }
   } catch (err) {
-    // No error message shown to user - BLIND
     console.error('Login Error:', err.message);
     return res.json({ success: false, message: 'Login failed' });
   }
 });
 
-// Vulnerable user search endpoint - BLIND NOSQL INJECTION
-app.post('/api/search', async (req, res) => {
+// Register
+app.post('/api/register', (req, res) => {
   try {
-    const searchTerm = req.body.query || req.body.search || '';
+    const { username, password, email } = req.body;
 
-    if (!searchTerm) {
-      return res.json({ success: false, message: 'Search query required', results: [] });
+    if (!username || !password || !email) {
+      return res.json({ success: false, message: 'All fields required' });
     }
 
-    // VULNERABLE: Using regex pattern with unsanitized input
-    // Attacker could inject regex patterns to bypass search
-    let query = {};
-    
-    // VULNERABLE: Direct regex construction
-    if (typeof searchTerm === 'string' && (searchTerm.includes('(') || searchTerm.includes(')') || searchTerm.includes('|'))) {
-      // If contains regex chars, try to use as regex pattern
-      try {
-        const pattern = new RegExp(searchTerm, 'i');
-        query = {
-          $or: [
-            { username: pattern },
-            { email: pattern }
-          ]
-        };
-      } catch (e) {
-        // Fallback to string search
-        query = {
-          $or: [
-            { username: { $regex: searchTerm, $options: 'i' } },
-            { email: { $regex: searchTerm, $options: 'i' } }
-          ]
-        };
-      }
-    } else {
-      query = {
-        $or: [
-          { username: { $regex: searchTerm, $options: 'i' } },
-          { email: { $regex: searchTerm, $options: 'i' } }
-        ]
-      };
+    if (users.find(u => u.username === username)) {
+      return res.json({ success: false, message: 'Username already exists' });
     }
-    
-    const results = await usersCollection.find(query).toArray();
-    
-    res.json({ 
-      success: true, 
-      results: results.map(u => ({
-        id: u._id.toString(),
-        username: u.username,
-        email: u.email
-      })),
-      count: results.length
+
+    users.push({
+      id: users.length + 1,
+      username,
+      password,
+      email,
+      role: 'user'
     });
+
+    return res.json({ success: true, message: 'Registration successful' });
   } catch (err) {
-    // No error message shown to user - BLIND
-    console.error('Query Error:', err);
-    res.json({ success: false, results: [], count: 0 });
+    return res.json({ success: false, message: 'Registration failed' });
   }
 });
 
-// Vulnerable user profile endpoint - BLIND NOSQL INJECTION
-app.get('/api/user/:userId', async (req, res) => {
-  const userId = req.params.userId;
-
-  try {
-    // VULNERABLE: Direct ID matching without type validation
-    let query = {};
-    
-    // VULNERABLE: Trying to parse userId as potential injection
-    try {
-      // Could be injected with operators like {"$ne": null}
-      if (userId.includes('{') || userId.includes('[')) {
-        query = JSON.parse(userId);
-      } else if (ObjectId.isValid(userId)) {
-        query = { _id: new ObjectId(userId) };
-      } else {
-        query = { _id: userId };
-      }
-    } catch (e) {
-      if (ObjectId.isValid(userId)) {
-        query = { _id: new ObjectId(userId) };
-      } else {
-        query = { _id: userId };
-      }
-    }
-    
-    const user = await usersCollection.findOne(query);
-    
-    if (user) {
-      res.json({ 
-        success: true, 
-        user: {
-          id: user._id.toString(),
-          username: user.username,
-          email: user.email,
-          role: user.role
-        }
-      });
-    } else {
-      res.json({ success: false });
-    }
-  } catch (err) {
-    // No error message shown to user
-    console.error('Query Error:', err);
-    res.json({ success: false });
-  }
-});
-
-// Vulnerable register endpoint - BLIND NOSQL INJECTION
-app.post('/api/register', async (req, res) => {
-  const username = req.body.username;
-  const password = req.body.password;
-  const email = req.body.email;
-
-  try {
-    // VULNERABLE: Direct insertion without sanitization
-    const newUser = {
-      username: username,
-      password: password,
-      email: email,
-      role: 'user',
-      created_at: new Date()
-    };
-    
-    // Check for existing username or email (but this check itself is vulnerable to injection)
-    const existingUser = await usersCollection.findOne({
-      $or: [
-        { username: username },
-        { email: email }
-      ]
-    });
-    
-    if (existingUser) {
-      res.json({ success: false, message: 'Username or email already exists' });
-      return;
-    }
-    
-    // VULNERABLE: Direct insert with unsanitized data
-    const result = await usersCollection.insertOne(newUser);
-    
-    res.json({ 
-      success: true, 
-      message: 'Registration successful. Please login.'
-    });
-  } catch (err) {
-    console.error('Query Error:', err);
-    res.json({ success: false, message: 'Registration failed' });
-  }
-});
-
-// Dashboard page - Requires login
+// Dashboard
 app.get('/dashboard', (req, res) => {
-  if (!req.session.user) {
-    return res.redirect('/');
-  }
+  if (!req.session.user) return res.redirect('/');
   res.sendFile(path.join(__dirname, '../frontend/public', 'dashboard.html'));
 });
 
-// SQL Injection Tester page - Requires login
-app.get('/tester', (req, res) => {
-  if (!req.session.user) {
-    return res.redirect('/');
-  }
-  res.sendFile(path.join(__dirname, '../frontend/public', 'tester.html'));
-});
-
-// Get current user session
+// Get current user
 app.get('/api/current-user', (req, res) => {
   if (!req.session.user) {
-    res.json({ success: false });
-    return;
+    return res.json({ success: false });
   }
   res.json({ success: true, user: req.session.user });
 });
@@ -363,25 +152,7 @@ app.post('/api/logout', (req, res) => {
 
 // Start server
 const PORT = process.env.PORT || 3000;
-
-connectDB().then(() => {
-  app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-  });
-}).catch(err => {
-  console.error('Failed to start server:', err);
-  process.exit(1);
-});
-
-// Graceful shutdown
-process.on('SIGINT', async () => {
-  console.log('\n📍 Shutting down...');
-  await mongoClient.close();
-  process.exit(0);
-});
-
-process.on('SIGTERM', async () => {
-  console.log('\n📍 Shutting down...');
-  await mongoClient.close();
-  process.exit(0);
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📝 Sample users: admin/admin123, ibnu/ibnu123, zaky/zaky123`);
 });
