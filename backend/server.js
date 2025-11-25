@@ -61,85 +61,126 @@ async function connectDB() {
       await usersCollection.insertMany(sampleUsers);
       console.log('✅ Sample users added');
     }
+    return true;
   } catch (err) {
-    console.error('❌ MongoDB Error:', err.message);
-    throw err;
+    console.error('❌ Failed to connect to MongoDB:', err.message);
+    return false;
   }
 }
 
-// Middleware: Check database connection
+// Serve static files
+app.use(express.static(path.join(__dirname, '../frontend/public')));
+
+// Middleware: Check if database is connected
 app.use((req, res, next) => {
   if (!usersCollection) {
-    return res.status(503).json({ success: false, message: 'Database not connected' });
+    return res.status(503).json({ 
+      success: false, 
+      message: 'Database not connected. Please try again later.' 
+    });
   }
   next();
 });
-
-// Serve static files
-app.use(express.static(path.join(__dirname, '../frontend/public')));
 
 // Home page
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/public', 'index.html'));
 });
 
-// Dashboard page
-app.get('/dashboard', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/public', 'dashboard.html'));
+// Health check endpoint (for Vercel/monitoring)
+app.get('/api/health', (req, res) => {
+  const health = {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    database: usersCollection ? 'connected' : 'disconnected'
+  };
+  const statusCode = usersCollection ? 200 : 503;
+  res.status(statusCode).json(health);
 });
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', database: usersCollection ? 'connected' : 'disconnected' });
-});
-
-// Login endpoint
+// Vulnerable login endpoint - BLIND NOSQL INJECTION
 app.post('/api/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const username = req.body.username;
+    const password = req.body.password;
 
     if (!username || !password) {
       return res.json({ success: false, message: 'Username and password required' });
     }
 
-    // VULNERABLE: Direct query construction
-    const user = await usersCollection.findOne({ username: username, password: password });
-
+    // VULNERABLE: Direct NoSQL injection vulnerability
+    // This allows attackers to inject MongoDB operators like {"$ne": null}
+    let vulnerableQuery = {};
+    
+    try {
+      // If input is an object (JSON), use it directly - VULNERABLE!
+      if (typeof username === 'object') {
+        vulnerableQuery.username = username;
+      } else if (typeof username === 'string' && (username.startsWith('{') || username.startsWith('['))) {
+        // VULNERABLE: Parse string input as object
+        vulnerableQuery.username = JSON.parse(username);
+      } else {
+        vulnerableQuery.username = username;
+      }
+    } catch (parseErr) {
+      // If parsing fails, use as string
+      vulnerableQuery.username = username;
+    }
+    
+    // Same for password
+    if (typeof password === 'object') {
+      vulnerableQuery.password = password;
+    } else if (typeof password === 'string' && (password.startsWith('{') || password.startsWith('['))) {
+      try {
+        vulnerableQuery.password = JSON.parse(password);
+      } catch (e) {
+        vulnerableQuery.password = password;
+      }
+    } else {
+      vulnerableQuery.password = password;
+    }
+    
+    const user = await usersCollection.findOne(vulnerableQuery);
+    
     if (user) {
+      // Store user in session
       req.session.user = {
-        id: user._id,
+        id: user._id.toString(),
         username: user.username,
         email: user.email,
         role: user.role
       };
-
+      
+      // INSECURE: Generate JWT without expiration (vulnerable)
       const token = jwt.sign(
         {
-          id: user._id,
+          id: user._id.toString(),
           username: user.username,
           email: user.email,
           role: user.role
         },
         JWT_SECRET,
         { algorithm: JWT_ALGORITHM }
+        // INSECURE: No expiresIn option - token never expires!
       );
-
-      return res.json({
-        success: true,
+      
+      return res.json({ 
+        success: true, 
         message: 'Login successful',
         user: user.username,
-        token: token
+        token: token // Return JWT to client
       });
+    } else {
+      return res.json({ success: false, message: 'Login failed' });
     }
-
-    res.json({ success: false, message: 'Invalid credentials' });
   } catch (err) {
+    // No error message shown to user - BLIND
     console.error('Login Error:', err.message);
-    res.json({ success: false, message: 'Login failed' });
+    return res.json({ success: false, message: 'Login failed' });
   }
 });
 
-// Search endpoint
+// Vulnerable user search endpoint - BLIND NOSQL INJECTION
 app.post('/api/search', async (req, res) => {
   try {
     const searchTerm = req.body.query || req.body.search || '';
@@ -148,85 +189,176 @@ app.post('/api/search', async (req, res) => {
       return res.json({ success: false, message: 'Search query required', results: [] });
     }
 
-    // VULNERABLE: Using regex with unsanitized input
-    const query = { $or: [{ username: { $regex: searchTerm } }, { email: { $regex: searchTerm } }] };
-    const results = await usersCollection.find(query).project({ username: 1, email: 1 }).toArray();
-
-    res.json({ success: true, results: results });
-  } catch (err) {
-    console.error('Search Error:', err.message);
-    res.json({ success: false, message: 'Search failed' });
-  }
-});
-
-// Get user by username
-app.get('/api/user/:username', async (req, res) => {
-  try {
-    const username = req.params.username;
-    const user = await usersCollection.findOne({ username: username });
-
-    if (user) {
-      res.json({ success: true, user: { id: user._id, username: user.username, email: user.email, role: user.role } });
+    // VULNERABLE: Using regex pattern with unsanitized input
+    // Attacker could inject regex patterns to bypass search
+    let query = {};
+    
+    // VULNERABLE: Direct regex construction
+    if (typeof searchTerm === 'string' && (searchTerm.includes('(') || searchTerm.includes(')') || searchTerm.includes('|'))) {
+      // If contains regex chars, try to use as regex pattern
+      try {
+        const pattern = new RegExp(searchTerm, 'i');
+        query = {
+          $or: [
+            { username: pattern },
+            { email: pattern }
+          ]
+        };
+      } catch (e) {
+        // Fallback to string search
+        query = {
+          $or: [
+            { username: { $regex: searchTerm, $options: 'i' } },
+            { email: { $regex: searchTerm, $options: 'i' } }
+          ]
+        };
+      }
     } else {
-      res.json({ success: false, message: 'User not found' });
+      query = {
+        $or: [
+          { username: { $regex: searchTerm, $options: 'i' } },
+          { email: { $regex: searchTerm, $options: 'i' } }
+        ]
+      };
     }
-  } catch (err) {
-    console.error('Get User Error:', err.message);
-    res.json({ success: false, message: 'Failed to get user' });
-  }
-});
-
-// Register endpoint
-app.post('/api/register', async (req, res) => {
-  try {
-    const { username, password, email } = req.body;
-
-    if (!username || !password || !email) {
-      return res.json({ success: false, message: 'All fields required' });
-    }
-
-    const result = await usersCollection.insertOne({
-      username: username,
-      password: password,
-      email: email,
-      role: 'user'
+    
+    const results = await usersCollection.find(query).toArray();
+    
+    res.json({ 
+      success: true, 
+      results: results.map(u => ({
+        id: u._id.toString(),
+        username: u.username,
+        email: u.email
+      })),
+      count: results.length
     });
-
-    res.json({ success: true, message: 'Registration successful', userId: result.insertedId });
   } catch (err) {
-    if (err.message.includes('duplicate key')) {
-      res.json({ success: false, message: 'Username or email already exists' });
-    } else {
-      console.error('Register Error:', err.message);
-      res.json({ success: false, message: 'Registration failed' });
-    }
+    // No error message shown to user - BLIND
+    console.error('Query Error:', err);
+    res.json({ success: false, results: [], count: 0 });
   }
 });
 
-// Get user session
-app.get('/api/user-session', (req, res) => {
-  if (req.session.user) {
-    res.json({ success: true, user: req.session.user });
-  } else {
+// Vulnerable user profile endpoint - BLIND NOSQL INJECTION
+app.get('/api/user/:userId', async (req, res) => {
+  const userId = req.params.userId;
+
+  try {
+    // VULNERABLE: Direct ID matching without type validation
+    let query = {};
+    
+    // VULNERABLE: Trying to parse userId as potential injection
+    try {
+      // Could be injected with operators like {"$ne": null}
+      if (userId.includes('{') || userId.includes('[')) {
+        query = JSON.parse(userId);
+      } else if (ObjectId.isValid(userId)) {
+        query = { _id: new ObjectId(userId) };
+      } else {
+        query = { _id: userId };
+      }
+    } catch (e) {
+      if (ObjectId.isValid(userId)) {
+        query = { _id: new ObjectId(userId) };
+      } else {
+        query = { _id: userId };
+      }
+    }
+    
+    const user = await usersCollection.findOne(query);
+    
+    if (user) {
+      res.json({ 
+        success: true, 
+        user: {
+          id: user._id.toString(),
+          username: user.username,
+          email: user.email,
+          role: user.role
+        }
+      });
+    } else {
+      res.json({ success: false });
+    }
+  } catch (err) {
+    // No error message shown to user
+    console.error('Query Error:', err);
     res.json({ success: false });
   }
 });
 
-// Get all users
-app.get('/api/users', async (req, res) => {
+// Vulnerable register endpoint - BLIND NOSQL INJECTION
+app.post('/api/register', async (req, res) => {
+  const username = req.body.username;
+  const password = req.body.password;
+  const email = req.body.email;
+
   try {
-    const users = await usersCollection.find({}).project({ username: 1, email: 1, role: 1 }).toArray();
-    res.json({ success: true, users: users });
+    // VULNERABLE: Direct insertion without sanitization
+    const newUser = {
+      username: username,
+      password: password,
+      email: email,
+      role: 'user',
+      created_at: new Date()
+    };
+    
+    // Check for existing username or email (but this check itself is vulnerable to injection)
+    const existingUser = await usersCollection.findOne({
+      $or: [
+        { username: username },
+        { email: email }
+      ]
+    });
+    
+    if (existingUser) {
+      res.json({ success: false, message: 'Username or email already exists' });
+      return;
+    }
+    
+    // VULNERABLE: Direct insert with unsanitized data
+    const result = await usersCollection.insertOne(newUser);
+    
+    res.json({ 
+      success: true, 
+      message: 'Registration successful. Please login.'
+    });
   } catch (err) {
-    console.error('Get Users Error:', err.message);
-    res.json({ success: false, message: 'Failed to fetch users' });
+    console.error('Query Error:', err);
+    res.json({ success: false, message: 'Registration failed' });
   }
+});
+
+// Dashboard page - Requires login
+app.get('/dashboard', (req, res) => {
+  if (!req.session.user) {
+    return res.redirect('/');
+  }
+  res.sendFile(path.join(__dirname, '../frontend/public', 'dashboard.html'));
+});
+
+// SQL Injection Tester page - Requires login
+app.get('/tester', (req, res) => {
+  if (!req.session.user) {
+    return res.redirect('/');
+  }
+  res.sendFile(path.join(__dirname, '../frontend/public', 'tester.html'));
+});
+
+// Get current user session
+app.get('/api/current-user', (req, res) => {
+  if (!req.session.user) {
+    res.json({ success: false });
+    return;
+  }
+  res.json({ success: true, user: req.session.user });
 });
 
 // Logout
 app.post('/api/logout', (req, res) => {
   req.session.destroy();
-  res.json({ success: true, message: 'Logged out' });
+  res.json({ success: true });
 });
 
 // Start server
