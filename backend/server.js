@@ -29,15 +29,23 @@ const USERS_COLLECTION = 'users';
 let db = null;
 let usersCollection = null;
 
-const mongoClient = new MongoClient(MONGO_URL);
+const mongoClient = new MongoClient(MONGO_URL, {
+  serverSelectionTimeoutMS: 5000,
+  socketTimeoutMS: 45000,
+  retryWrites: true,
+  retryReads: true
+});
+
+console.log('Attempting to connect to MongoDB...');
+console.log('MONGO_URL:', MONGO_URL ? 'Set' : 'NOT SET - using default');
 
 mongoClient.connect().then(() => {
   db = mongoClient.db(DB_NAME);
   usersCollection = db.collection(USERS_COLLECTION);
-  console.log('Connected to MongoDB');
+  console.log('✅ Successfully connected to MongoDB');
 }).catch((err) => {
-  console.error('Error connecting to MongoDB:', err);
-  process.exit(1);
+  console.error('❌ Failed to connect to MongoDB:', err.message);
+  console.error('This is a critical error. Server will not be able to process requests.');
 });
 
 // Serve static files
