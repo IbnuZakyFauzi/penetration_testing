@@ -23,12 +23,20 @@ app.use(session({
 }));
 
 // Initialize SQLite database
-const dataDir = path.join(__dirname, '..', '.data');
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+// Use /tmp for Vercel (ephemeral), or .data for local development
+const isVercel = process.env.VERCEL === '1';
+const dbPath = isVercel 
+  ? '/tmp/blind-sqli.db'  // Vercel temporary storage
+  : path.join(__dirname, '..', '.data', 'blind-sqli.db'); // Local storage
+
+// Create .data directory for local development
+if (!isVercel) {
+  const dataDir = path.join(__dirname, '..', '.data');
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
 }
 
-const dbPath = path.join(dataDir, 'blind-sqli.db');
 const db = new Database(dbPath);
 
 console.log('✅ SQLite database initialized at:', dbPath);
