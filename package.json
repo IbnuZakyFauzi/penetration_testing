@@ -4,8 +4,8 @@
   "description": "Vulnerable website for Insecure JWT penetration testing (MongoDB Edition)",
   "main": "backend/server.js",
   "scripts": {
-    "start": "node backend/server-sqlite.js",
-    "dev": "nodemon backend/server-sqlite.js",
+    "start": "node backend/server.js",
+    "dev": "nodemon backend/server.js",
     "setup": "node backend/setup-mongodb.js"
   },
   "keywords": [
