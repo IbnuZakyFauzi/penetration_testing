@@ -65,10 +65,29 @@ app.post('/api/login', (req, res) => {
     if (username.includes("' OR '1'='1")) {
       // Auth bypass - matches any user with OR condition
       user = users[0]; // Return admin
-    } else if (username.includes("' AND")) {
-      // Blind SQL extraction patterns
+    } else if (username.includes("' AND password LIKE")) {
+      // Blind SQL extraction with LIKE pattern
       const baseName = username.split("'")[0];
-      user = users.find(u => u.username === baseName);
+      const likeMatch = username.match(/LIKE '([^']+)'/);
+      
+      if (likeMatch && baseName === 'admin') {
+        const pattern = likeMatch[1];
+        const adminUser = users.find(u => u.username === 'admin');
+        
+        if (adminUser) {
+          // Convert SQL LIKE pattern to regex
+          // 'a%' -> starts with 'a'
+          // 'ad%' -> starts with 'ad'
+          const regexPattern = pattern.replace(/%/g, '.*').replace(/_/g, '.');
+          const regex = new RegExp('^' + regexPattern + '$');
+          
+          // Check if password matches the pattern
+          if (regex.test(adminUser.password)) {
+            user = adminUser; // Pattern matches!
+          }
+          // else: Pattern doesn't match, user stays null
+        }
+      }
     } else {
       // Normal login
       user = users.find(u => u.username === username && u.password === password);
