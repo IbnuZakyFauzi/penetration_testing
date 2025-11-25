@@ -88,7 +88,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Vulnerable login endpoint - SQL INJECTION (similar to NoSQL injection)
+// Vulnerable login endpoint - BLIND SQL INJECTION
 app.post('/api/login', (req, res) => {
   try {
     const username = req.body.username;
@@ -98,11 +98,11 @@ app.post('/api/login', (req, res) => {
       return res.json({ success: false, message: 'Username and password required' });
     }
 
-    // VULNERABLE: Direct SQL query construction (SQL injection)
-    // In real scenario, this would allow SQL injection
-    // For demo, we use parameterized query but vulnerability is conceptual
-    const query = `SELECT * FROM users WHERE username = ? AND password = ?`;
-    const user = db.prepare(query).get(username, password);
+    // ⚠️ VULNERABLE: Direct string concatenation (ALLOWS SQL INJECTION)
+    // This allows attackers to inject SQL operators like: admin' OR '1'='1
+    const query = `SELECT * FROM users WHERE username = '${username}' AND password = '${password}'`;
+    console.log('🔴 VULNERABLE QUERY:', query); // Log for demo only
+    const user = db.prepare(query).get();
 
     if (user) {
       req.session.user = {
