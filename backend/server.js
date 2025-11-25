@@ -30,23 +30,31 @@ let db = null;
 let usersCollection = null;
 
 const mongoClient = new MongoClient(MONGO_URL, {
-  serverSelectionTimeoutMS: 5000,
+  serverSelectionTimeoutMS: 10000,
   socketTimeoutMS: 45000,
   retryWrites: true,
-  retryReads: true
+  retryReads: true,
+  maxPoolSize: 10,
+  minPoolSize: 2
 });
 
 console.log('Attempting to connect to MongoDB...');
-console.log('MONGO_URL:', MONGO_URL ? 'Set' : 'NOT SET - using default');
+console.log('MONGO_URL:', MONGO_URL ? 'Set (length: ' + MONGO_URL.length + ')' : 'NOT SET');
 
-mongoClient.connect().then(() => {
-  db = mongoClient.db(DB_NAME);
-  usersCollection = db.collection(USERS_COLLECTION);
-  console.log('✅ Successfully connected to MongoDB');
-}).catch((err) => {
-  console.error('❌ Failed to connect to MongoDB:', err.message);
-  console.error('This is a critical error. Server will not be able to process requests.');
-});
+// Create connection promise
+const dbConnected = mongoClient.connect()
+  .then(() => {
+    console.log('[DB] Connected successfully');
+    db = mongoClient.db(DB_NAME);
+    usersCollection = db.collection(USERS_COLLECTION);
+    console.log('✅ Successfully connected to MongoDB');
+    return true;
+  })
+  .catch((err) => {
+    console.error('❌ Failed to connect to MongoDB:', err.message);
+    // Don't exit - let the server respond with 503 errors
+    return false;
+  });
 
 // Serve static files
 app.use(express.static(path.join(__dirname, '../frontend/public')));
@@ -65,6 +73,17 @@ app.use((req, res, next) => {
 // Home page
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/public', 'index.html'));
+});
+
+// Health check endpoint (for Vercel/monitoring)
+app.get('/api/health', (req, res) => {
+  const health = {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    database: usersCollection ? 'connected' : 'disconnected'
+  };
+  const statusCode = usersCollection ? 200 : 503;
+  res.status(statusCode).json(health);
 });
 
 // Vulnerable login endpoint - BLIND NOSQL INJECTION
@@ -338,7 +357,21 @@ app.listen(PORT, () => {
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
-  console.log('\nClosing MongoDB connection...');
-  await mongoClient.close();
+  console.log('\nClosing MongoDB connection (SIGINT)...');
+  try {
+    await mongoClient.close();
+  } catch (e) {
+    console.error('Error closing MongoDB:', e.message);
+  }
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  console.log('\nClosing MongoDB connection (SIGTERM)...');
+  try {
+    await mongoClient.close();
+  } catch (e) {
+    console.error('Error closing MongoDB:', e.message);
+  }
   process.exit(0);
 });
