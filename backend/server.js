@@ -69,33 +69,45 @@ app.get('/', (req, res) => {
 
 // Vulnerable login endpoint - BLIND NOSQL INJECTION
 app.post('/api/login', async (req, res) => {
-  const username = req.body.username;
-  const password = req.body.password;
-
-  // VULNERABLE: Direct template string concatenation creating NoSQL injection
-  // This simulates SQL injection patterns but with MongoDB queries
   try {
-    // VULNERABLE: Building query with unsanitized input
-    // In real NoSQL injection, attacker could inject: {"$ne": ""} or similar operators
-    const query = {
-      username: new Function('return ' + `"${username.replace(/"/g, '\\"')}"`)(),
-      password: new Function('return ' + `"${password.replace(/"/g, '\\"')}"`)()
-    };
-    
-    // Simpler vulnerable approach: direct query construction
+    const username = req.body.username;
+    const password = req.body.password;
+
+    if (!username || !password) {
+      return res.json({ success: false, message: 'Username and password required' });
+    }
+
+    // VULNERABLE: Direct NoSQL injection vulnerability
+    // This allows attackers to inject MongoDB operators like {"$ne": null}
     let vulnerableQuery = {};
+    
     try {
-      // Attempt to evaluate input as JavaScript object (NoSQL injection)
-      if (username.includes('{') || username.includes('[')) {
-        vulnerableQuery = JSON.parse(username);
+      // If input is an object (JSON), use it directly - VULNERABLE!
+      if (typeof username === 'object') {
+        vulnerableQuery.username = username;
+      } else if (typeof username === 'string' && (username.startsWith('{') || username.startsWith('['))) {
+        // VULNERABLE: Parse string input as object
+        vulnerableQuery.username = JSON.parse(username);
       } else {
         vulnerableQuery.username = username;
       }
-    } catch (e) {
+    } catch (parseErr) {
+      // If parsing fails, use as string
       vulnerableQuery.username = username;
     }
     
-    vulnerableQuery.password = password;
+    // Same for password
+    if (typeof password === 'object') {
+      vulnerableQuery.password = password;
+    } else if (typeof password === 'string' && (password.startsWith('{') || password.startsWith('['))) {
+      try {
+        vulnerableQuery.password = JSON.parse(password);
+      } catch (e) {
+        vulnerableQuery.password = password;
+      }
+    } else {
+      vulnerableQuery.password = password;
+    }
     
     const user = await usersCollection.findOne(vulnerableQuery);
     
@@ -121,33 +133,37 @@ app.post('/api/login', async (req, res) => {
         // INSECURE: No expiresIn option - token never expires!
       );
       
-      res.json({ 
+      return res.json({ 
         success: true, 
         message: 'Login successful',
         user: user.username,
         token: token // Return JWT to client
       });
     } else {
-      res.json({ success: false, message: 'Login failed' });
+      return res.json({ success: false, message: 'Login failed' });
     }
   } catch (err) {
     // No error message shown to user - BLIND
-    console.error('Query Error:', err);
-    res.json({ success: false, message: 'Login failed' });
+    console.error('Login Error:', err.message);
+    return res.json({ success: false, message: 'Login failed' });
   }
 });
 
 // Vulnerable user search endpoint - BLIND NOSQL INJECTION
 app.post('/api/search', async (req, res) => {
-  const searchTerm = req.body.search;
-
   try {
+    const searchTerm = req.body.query || req.body.search || '';
+
+    if (!searchTerm) {
+      return res.json({ success: false, message: 'Search query required', results: [] });
+    }
+
     // VULNERABLE: Using regex pattern with unsanitized input
     // Attacker could inject regex patterns to bypass search
     let query = {};
     
     // VULNERABLE: Direct regex construction
-    if (searchTerm.includes('(') || searchTerm.includes(')') || searchTerm.includes('|')) {
+    if (typeof searchTerm === 'string' && (searchTerm.includes('(') || searchTerm.includes(')') || searchTerm.includes('|'))) {
       // If contains regex chars, try to use as regex pattern
       try {
         const pattern = new RegExp(searchTerm, 'i');
