@@ -23,7 +23,7 @@ app.use(session({
 
 // MongoDB connection
 // Use MONGODB_URI from Vercel, fallback to MONGO_URL
-const MONGO_URL = process.env.MONGODB_URI || process.env.MONGO_URL || 'mongodb://localhost:27017';
+const MONGO_URL = process.env.MONGODB_URI || process.env.MONGO_URL || 'mongodb+srv://izakythb_db_user:12345@blindsql.xvz0j3z.mongodb.net/?appName=BlindSQL';
 const DB_NAME = 'blind_sqli_db';
 const USERS_COLLECTION = 'users';
 
