@@ -1,18 +1,17 @@
 {
   "name": "blind-sql-injection-target",
   "version": "1.0.0",
-  "description": "Vulnerable website for Insecure JWT penetration testing (MongoDB Edition)",
-  "main": "backend/server.js",
+  "description": "Vulnerable website for Insecure JWT penetration testing (SQLite Edition)",
+  "main": "backend/server-sqlite.js",
   "scripts": {
-    "start": "node backend/server.js",
-    "dev": "nodemon backend/server.js",
-    "setup": "node backend/setup-mongodb.js"
+    "start": "node backend/server-sqlite.js",
+    "dev": "nodemon backend/server-sqlite.js"
   },
   "keywords": [
     "penetration-testing",
     "blind-sql-injection",
     "vulnerable",
-    "mongodb"
+    "sqlite"
   ],
   "author": "",
   "license": "MIT",
@@ -21,8 +20,7 @@
     "body-parser": "^1.20.2",
     "express": "^4.18.2",
     "express-session": "^1.17.3",
-    "jsonwebtoken": "^9.0.0",
-    "mongodb": "^5.9.0"
+    "jsonwebtoken": "^9.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
