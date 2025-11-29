@@ -60,6 +60,7 @@ app.post('/api/login', (req, res) => {
     console.log(`🔴 VULNERABLE QUERY: SELECT * FROM users WHERE username='${username}' AND password='${password}'`);
     
     let user = null;
+    let isBlindSQLInjection = false;
 
     // SQL Injection detection: ' OR '1'='1
     if (username.includes("' OR '1'='1")) {
@@ -67,6 +68,7 @@ app.post('/api/login', (req, res) => {
       user = users[0]; // Return admin
     } else if (username.includes("' AND password LIKE")) {
       // Blind SQL extraction with LIKE pattern
+      isBlindSQLInjection = true;
       const baseName = username.split("'")[0];
       const likeMatch = username.match(/LIKE '([^']+)'/);
       
@@ -83,9 +85,16 @@ app.post('/api/login', (req, res) => {
           
           // Check if password matches the pattern
           if (regex.test(adminUser.password)) {
-            user = adminUser; // Pattern matches!
+            // Pattern matches: Return with padding to differentiate response
+            return res.json({ 
+              success: false, 
+              message: 'Login failed',
+              _: 'padding_to_indicate_true_condition_in_blind_injection_aaaaaaaaaaaaa'
+            });
+          } else {
+            // Pattern doesn't match: Return short response
+            return res.json({ success: false, message: 'Login failed' });
           }
-          // else: Pattern doesn't match, user stays null
         }
       }
     } else {
@@ -93,7 +102,7 @@ app.post('/api/login', (req, res) => {
       user = users.find(u => u.username === username && u.password === password);
     }
 
-    if (user) {
+    if (user && !isBlindSQLInjection) {
       req.session.user = {
         id: user.id,
         username: user.username,
