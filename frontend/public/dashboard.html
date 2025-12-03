@@ -203,7 +203,27 @@
             <p>Keamanan Jaringan - Kelompok 42</p>
             <div class="topic-badge">🔐 Topik: Blind SQL Injection dan Insecure JWT</div>
         </div>
-        
+
+        <!-- Dynamic dashboard section: user vs admin -->
+        <div class="team-section" id="dashboard-section">
+            <div class="section-title" id="dashboard-title">📊 User Dashboard</div>
+            <div class="team-members">
+                <div class="member-card" id="role-card">
+                    <div class="member-avatar" id="role-initial">U</div>
+                    <div class="member-name" id="role-heading">User Dashboard</div>
+                    <div class="member-role" id="role-description">Akses standar pengguna aplikasi</div>
+                </div>
+
+                <!-- Static project info card -->
+                <div class="member-card">
+                    <div class="member-avatar">42</div>
+                    <div class="member-name">Proyek Akhir Keamanan Jaringan</div>
+                    <div class="member-role">Studi kasus Blind SQL Injection & Insecure JWT</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Team section stays the same for both roles -->
         <div class="team-section">
             <div class="section-title">👥 Anggota Tim</div>
             <div class="team-members">
@@ -213,7 +233,7 @@
                     <div class="member-id">2306161870</div>
                     <div class="member-role">Penetration Testing & Exploitation</div>
                 </div>
-                
+
                 <div class="member-card">
                     <div class="member-avatar">TA</div>
                     <div class="member-name">Tjokorde Gde Agung Abel Putra</div>
@@ -225,27 +245,75 @@
     </div>
     
     <script>
-        // Check if user is logged in
+        // Decode JWT payload (base64url) safely
+        function decodeJwtPayload(token) {
+            try {
+                const parts = token.split('.');
+                if (parts.length !== 3) return null;
+                const payload = parts[1]
+                    .replace(/-/g, '+')
+                    .replace(/_/g, '/');
+                const decoded = atob(payload.padEnd(payload.length + (4 - payload.length % 4) % 4, '='));
+                return JSON.parse(decoded);
+            } catch (e) {
+                return null;
+            }
+        }
+
+        // Initialize dashboard: determine username & role (user vs admin)
         window.addEventListener('DOMContentLoaded', () => {
-            const username = localStorage.getItem('username');
-            if (!username) {
-                // If no username stored, try to get from session
+            const token = localStorage.getItem('token');
+            const storedUsername = localStorage.getItem('username');
+
+            let role = 'user';
+            let username = storedUsername || 'User';
+
+            if (token) {
+                const payload = decodeJwtPayload(token);
+                if (payload && payload.username) {
+                    username = payload.username;
+                    localStorage.setItem('username', username);
+                }
+                if (payload && payload.role) {
+                    role = payload.role;
+                }
+            }
+
+            // Fallback: if no token, rely on session API
+            if (!token) {
                 fetch('/api/current-user')
                     .then(res => res.json())
                     .then(data => {
                         if (data.success && data.user) {
                             document.getElementById('username').textContent = data.user.username;
-                            localStorage.setItem('username', data.user.username);
                         } else {
-                            // Redirect to login if not authenticated
                             window.location.href = '/';
                         }
                     })
                     .catch(() => {
                         window.location.href = '/';
                     });
+            }
+
+            // Update navbar username
+            document.getElementById('username').textContent = username + ' (' + role + ')';
+
+            // Update dashboard section based on role
+            const titleEl = document.getElementById('dashboard-title');
+            const roleCardHeading = document.getElementById('role-heading');
+            const roleDesc = document.getElementById('role-description');
+            const roleInitial = document.getElementById('role-initial');
+
+            if (role === 'admin') {
+                titleEl.textContent = '🛡️ Admin Dashboard';
+                roleCardHeading.textContent = 'Admin Dashboard';
+                roleDesc.textContent = 'Akses penuh: dapat mengelola dan memonitor aplikasi.';
+                roleInitial.textContent = 'A';
             } else {
-                document.getElementById('username').textContent = username;
+                titleEl.textContent = '📊 User Dashboard';
+                roleCardHeading.textContent = 'User Dashboard';
+                roleDesc.textContent = 'Akses standar pengguna aplikasi.';
+                roleInitial.textContent = 'U';
             }
         });
         
